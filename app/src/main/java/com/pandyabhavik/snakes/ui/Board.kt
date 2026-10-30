@@ -69,8 +69,10 @@ class BoardGrid(val left: Float, val top: Float, val width: Float, val height: F
         val waves = max(1, (len / (m * 2.4f)).roundToInt())
         val amp = m * min(0.55f, 0.22f + len / m * 0.04f)
         val phase = if (head % 2 == 1) 0f else PI.toFloat()
+        // sin(π) is a hair below zero in Float, and a negative to a fractional power is NaN, which would
+        // make Skia drop the whole body path: hence the coerceAtLeast.
         return { s ->
-            val w = amp * sin(PI.toFloat() * s).pow(0.8f) * sin(2 * PI.toFloat() * waves * s + phase + wig)
+            val w = amp * sin(PI.toFloat() * s).coerceAtLeast(0f).pow(0.8f) * sin(2 * PI.toFloat() * waves * s + phase + wig)
             h + d * s + n * w
         }
     }

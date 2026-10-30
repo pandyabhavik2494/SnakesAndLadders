@@ -197,7 +197,9 @@ private fun SetupScreen(state: UiState, viewModel: GameViewModel, feel: Feel) {
     var renaming by remember { mutableStateOf<Int?>(null) }
     val players = Players(names, onePlayer)
 
-    Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(theme.wallCentre, theme.wallEdge)))) {
+    BoxWithConstraints(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(theme.wallCentre, theme.wallEdge)))) {
+        // Board previews are a little shorter when there's less height to spare relative to width.
+        val thumbAspect = if (maxHeight < maxWidth * 1.6f) 1f / 1.15f else 1f / 1.5f
         Column(
             Modifier.align(Alignment.TopCenter).widthIn(max = 520.dp).fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)
                 .verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 10.dp),
@@ -223,7 +225,7 @@ private fun SetupScreen(state: UiState, viewModel: GameViewModel, feel: Feel) {
                             .clickable { feel.tap(); layout = l }.semantics { selected = on; contentDescription = "${l.label} board" }.padding(6.dp),
                         horizontalAlignment = Alignment.CenterHorizontally,
                     ) {
-                        BoardView(l, theme, Modifier.fillMaxWidth().aspectRatio(1f / 1.5f).clip(RoundedCornerShape(10.dp)))
+                        BoardView(l, theme, Modifier.fillMaxWidth().aspectRatio(thumbAspect).clip(RoundedCornerShape(10.dp)))
                         Spacer(Modifier.height(6.dp))
                         Text(l.label, style = MaterialTheme.typography.bodyMedium, color = if (on) theme.ink else theme.dim)
                     }

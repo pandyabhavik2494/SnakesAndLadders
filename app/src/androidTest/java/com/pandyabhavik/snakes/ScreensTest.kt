@@ -63,7 +63,9 @@ class ScreensTest {
         find(By.text(if (onePlayer) "1 player" else "2 players"), "player count").click()
         Thread.sleep(400)
         shot(shotName)
-        find(By.textStartsWith("Start"), "Start button").click()
+        val start = device.wait(Until.findObject(By.textStartsWith("Start")), 2_000)
+            ?: run { device.findObject(By.scrollable(true))?.scroll(Direction.DOWN, 1f); find(By.textStartsWith("Start"), "Start button") }
+        start.click()
         Thread.sleep(1200)
     }
 
