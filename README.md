@@ -3,7 +3,7 @@
 The board game for two, built for the Galaxy Z Fold 8 (Android 11 and later): pass the phone between
 two players, or play against the phone, which rolls for itself.
 
-- Five complete looks (Jade Palace, Midnight Gold, Rosewood, Sakura, Noir), four piece shapes, seven
+- Full screen on both displays: a tall tower board on the cover screen; on the inner screen, two players get a tabletop with a die at each edge, facing each player. One player plays the computer.
   piece colours per player and five dice. Everything is drawn in code: no images.
 - Three boards (Classic, Gentle, Wild) and house rules: exact roll, bounce back or any roll to finish,
   and whether a six rolls again.

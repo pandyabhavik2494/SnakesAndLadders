@@ -9,7 +9,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
-import com.pandyabhavik.snakes.ui.GameScreen
+import com.pandyabhavik.snakes.ui.App
 import com.pandyabhavik.snakes.ui.GameViewModel
 import com.pandyabhavik.snakes.ui.theme.SnakesTheme
 
@@ -28,7 +28,7 @@ class MainActivity : ComponentActivity() {
                 enableEdgeToEdge(statusBarStyle = bars, navigationBarStyle = bars)
             }
             SnakesTheme(theme) {
-                GameScreen(viewModel)
+                App(viewModel)
             }
         }
     }

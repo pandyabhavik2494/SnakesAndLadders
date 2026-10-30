@@ -72,6 +72,10 @@ enum class Theme(
 
     /** A raised surface (sheets, cards) that sits on this wall. */
     val surface: Color get() = if (light) Color(0xFFFBF3F1) else panel
+    /** Frosted glass for the bars and pills that float over the board. */
+    val glass: Color get() = if (light) Color(0xCCFFF8F6) else wallEdge.copy(alpha = 0.78f)
+    /** Hairline borders. */
+    val line: Color get() = if (light) Color(0x244A2F35) else Color(0x1AFFFFFF)
     /** Text on an accent-filled button. */
     val onAccent: Color get() = if (light) Color.White else Color(0xFF1B1408)
 

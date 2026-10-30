@@ -38,6 +38,9 @@ private val PIECE_KEY = stringPreferencesKey("piece")
 private val COLOR1_KEY = stringPreferencesKey("color1")
 private val COLOR2_KEY = stringPreferencesKey("color2")
 private val DICE_KEY = stringPreferencesKey("dice")
+private val HINTS_KEY = booleanPreferencesKey("hints")
+private val SHAKE_KEY = booleanPreferencesKey("shake")
+private val RECORD_KEY = stringPreferencesKey("record")
 
 /** How the table looks and sounds. */
 data class Settings(
@@ -47,12 +50,21 @@ data class Settings(
     val piece: PieceStyle = PieceStyle.ORB,
     val colors: List<PieceColor> = listOf(PieceColor.RUBY, PieceColor.SAPPHIRE),
     val dice: DiceStyle = DiceStyle.IVORY,
+    /** Glow the six squares within reach before each roll. */
+    val hints: Boolean = true,
+    /** Shake the phone to throw the die. */
+    val shake: Boolean = true,
 )
 
-/** Who is playing. With [vsPhone] the second seat is the phone, which rolls for itself. */
+/** Where the app is. */
+enum class Screen { TITLE, SETUP, GAME, STUDIO }
+
+/** Who is playing. With [vsPhone] (one player) the second seat is the computer, which rolls for itself. */
 data class Players(val names: List<String> = listOf("Player 1", "Player 2"), val vsPhone: Boolean = false) {
-    fun name(i: Int): String = if (i == 1 && vsPhone) "Phone" else names[i].ifBlank { "Player ${i + 1}" }
+    fun name(i: Int): String = if (i == 1 && vsPhone) "Computer" else names[i].ifBlank { "Player ${i + 1}" }
     fun isPhone(i: Int): Boolean = vsPhone && i == 1
+    /** Who the record is between, in a fixed order, so it reads the same whoever sat where. */
+    val pairKey: String get() = listOf(name(0), name(1)).sorted().joinToString("\u0001")
 }
 
 data class UiState(
@@ -60,8 +72,11 @@ data class UiState(
     val players: Players = Players(),
     val settings: Settings = Settings(),
     val loaded: Boolean = false,
-    /** True on the very first launch, so the screen can open the new-game sheet. */
-    val firstRun: Boolean = false,
+    val screen: Screen = Screen.TITLE,
+    /** Where Back goes from a screen opened on top of another (the Studio, the setup). */
+    val previous: Screen = Screen.TITLE,
+    /** Wins between the current two players, by name. */
+    val record: Map<String, Int> = emptyMap(),
     /** The roll being shown, if any; [turnId] changes with every roll and every new game. */
     val turn: Turn? = null,
     val turnId: Int = 0,
@@ -69,6 +84,8 @@ data class UiState(
     val busy: Boolean = false,
 ) {
     val phoneToRoll: Boolean get() = players.isPhone(game.current) && !game.isOver
+    val inProgress: Boolean get() = game.rollCount > 0 && !game.isOver
+    fun wins(player: Int): Int = record[players.name(player)] ?: 0
 }
 
 /**
@@ -80,6 +97,15 @@ class GameViewModel(private val app: Application) : ViewModel() {
     val state: StateFlow<UiState> = _state
     private val random = SecureRandom()
     private var phoneJob: Job? = null
+    /** Back: the Studio and setup return where they came from; the game returns to the title. */
+    fun back() {
+        val s = _state.value
+        val target = if (s.screen == Screen.GAME) Screen.TITLE else s.previous.takeIf { it != s.screen } ?: Screen.TITLE
+        _state.update { it.copy(screen = target, previous = Screen.TITLE) }
+        if (target == Screen.GAME) schedulePhone() else phoneJob?.cancel()
+    }
+
+    private var records: Map<String, Map<String, Int>> = emptyMap()
 
     init {
         viewModelScope.launch {
@@ -92,10 +118,12 @@ class GameViewModel(private val app: Application) : ViewModel() {
                 piece = PieceStyle.byId(prefs[PIECE_KEY]),
                 colors = listOf(PieceColor.byId(prefs[COLOR1_KEY], PieceColor.RUBY), PieceColor.byId(prefs[COLOR2_KEY], PieceColor.SAPPHIRE)),
                 dice = DiceStyle.byId(prefs[DICE_KEY]),
+                hints = prefs[HINTS_KEY] ?: true,
+                shake = prefs[SHAKE_KEY] ?: true,
             )
             val players = Players(listOf(prefs[NAME1_KEY] ?: "Player 1", prefs[NAME2_KEY] ?: "Player 2"), prefs[VS_PHONE_KEY] ?: false)
-            _state.value = UiState(game = saved ?: Game(), players = players, settings = settings, loaded = true, firstRun = saved == null)
-            schedulePhone()
+            records = decodeRecords(prefs[RECORD_KEY])
+            _state.value = UiState(game = saved ?: Game(), players = players, settings = settings, loaded = true, record = records[players.pairKey].orEmpty())
         }
     }
 
@@ -105,8 +133,9 @@ class GameViewModel(private val app: Application) : ViewModel() {
         if (!s.loaded || s.busy || s.game.isOver) return
         if (s.phoneToRoll != byPhone) return
         val (next, turn) = s.game.play(1 + random.nextInt(6))
-        _state.update { it.copy(game = next, turn = turn, turnId = it.turnId + 1, busy = true, firstRun = false) }
+        _state.update { it.copy(game = next, turn = turn, turnId = it.turnId + 1, busy = true) }
         save(next)
+        if (turn.won) recordWin(s.players, s.players.name(turn.player))
     }
 
     /** The screen has finished animating roll [id]. */
@@ -118,16 +147,16 @@ class GameViewModel(private val app: Application) : ViewModel() {
 
     private fun schedulePhone() {
         phoneJob?.cancel()
-        if (!_state.value.phoneToRoll) return
+        if (!_state.value.phoneToRoll || _state.value.screen != Screen.GAME) return
         phoneJob = viewModelScope.launch {
-            delay(850)
+            delay(1000)
             roll(byPhone = true)
         }
     }
 
-    fun newGame(layout: Layout, rules: Rules, players: Players) {
-        val game = Game(layout = layout, rules = rules)
-        _state.update { it.copy(game = game, players = players, turn = null, turnId = it.turnId + 1, busy = false, firstRun = false) }
+    fun newGame(layout: Layout, rules: Rules, players: Players, first: Int = 0) {
+        val game = Game(layout = layout, rules = rules, current = first)
+        _state.update { it.copy(game = game, players = players, turn = null, turnId = it.turnId + 1, busy = false, screen = Screen.GAME, record = records[players.pairKey].orEmpty()) }
         save(game)
         viewModelScope.launch {
             app.store.edit {
@@ -139,15 +168,46 @@ class GameViewModel(private val app: Application) : ViewModel() {
         schedulePhone()
     }
 
-    fun playAgain() = newGame(_state.value.game.layout, _state.value.game.rules, _state.value.players)
+    /** Same players, same board; whoever lost goes first. */
+    fun rematch() {
+        val s = _state.value
+        newGame(s.game.layout, s.game.rules, s.players, first = s.game.winner?.let { 1 - it } ?: 0)
+    }
 
-    fun dismissFirstRun() = _state.update { it.copy(firstRun = false) }
+    fun go(screen: Screen) {
+        _state.update { it.copy(screen = screen, previous = if (screen == Screen.TITLE || screen == Screen.GAME) Screen.TITLE else it.screen) }
+        if (screen == Screen.GAME) schedulePhone() else phoneJob?.cancel()
+    }
+
+
+    private fun recordWin(players: Players, winner: String) {
+        val key = players.pairKey
+        val pair = records[key].orEmpty().toMutableMap()
+        pair[winner] = (pair[winner] ?: 0) + 1
+        records = records + (key to pair)
+        _state.update { it.copy(record = pair) }
+        val encoded = encodeRecords(records)
+        viewModelScope.launch { app.store.edit { it[RECORD_KEY] = encoded } }
+    }
+
+    // "pairKey=name:wins,name:wins" lines.
+    private fun encodeRecords(r: Map<String, Map<String, Int>>) =
+        r.entries.joinToString("\n") { (k, v) -> k + "=" + v.entries.joinToString(",") { "${it.key.replace(",", " ").replace(":", " ")}:${it.value}" } }
+
+    private fun decodeRecords(text: String?): Map<String, Map<String, Int>> = runCatching {
+        text.orEmpty().lines().filter { "=" in it }.associate { line ->
+            val (k, v) = line.split("=", limit = 2)
+            k to v.split(",").filter { ":" in it }.associate { e -> e.substringBeforeLast(":") to e.substringAfterLast(":").toInt() }
+        }
+    }.getOrDefault(emptyMap())
 
     fun setSound(on: Boolean) = setting(SOUND_KEY, on) { copy(soundOn = on) }
     fun setHaptics(on: Boolean) = setting(HAPTICS_KEY, on) { copy(hapticsOn = on) }
     fun setTheme(theme: Theme) = setting(THEME_KEY, theme.id) { copy(theme = theme) }
     fun setPiece(piece: PieceStyle) = setting(PIECE_KEY, piece.id) { copy(piece = piece) }
     fun setDice(dice: DiceStyle) = setting(DICE_KEY, dice.id) { copy(dice = dice) }
+    fun setHints(on: Boolean) = setting(HINTS_KEY, on) { copy(hints = on) }
+    fun setShake(on: Boolean) = setting(SHAKE_KEY, on) { copy(shake = on) }
 
     /** Gives [player] the colour; if the other player had it, they swap, so the pieces never match. */
     fun setColor(player: Int, color: PieceColor) {
