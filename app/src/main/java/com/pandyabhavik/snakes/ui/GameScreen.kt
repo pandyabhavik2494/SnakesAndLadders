@@ -109,6 +109,8 @@ class Motion {
     var spin by mutableFloatStateOf(0f)
     var caption by mutableStateOf<String?>(null)
     var handoff by mutableStateOf<Int?>(null)
+    /** The last roll whose piece has reached its square. Until then the piece is shown where it started. */
+    var landed by mutableIntStateOf(0)
     val rolling: Boolean get() = player >= 0
 
     enum class Kind { NONE, HOP, LADDER, SNAKE }
@@ -143,7 +145,7 @@ fun GameScreen(state: UiState, viewModel: GameViewModel, feel: Feel) {
             motion.reset(state.game.lastRoll ?: 6)
             return@LaunchedEffect
         }
-        playTurn(turn, motion, feel, state.players)
+        playTurn(state.turnId, turn, motion, feel, state.players)
         motion.reset(turn.roll)
         viewModel.turnShown(state.turnId)
     }
@@ -169,7 +171,7 @@ fun GameScreen(state: UiState, viewModel: GameViewModel, feel: Feel) {
     }
 }
 
-private suspend fun playTurn(turn: Turn, motion: Motion, feel: Feel, players: Players) {
+private suspend fun playTurn(id: Int, turn: Turn, motion: Motion, feel: Feel, players: Players) {
     val p = turn.player
     val name = players.name(p)
     motion.player = p
@@ -226,6 +228,7 @@ private suspend fun playTurn(turn: Turn, motion: Motion, feel: Feel, players: Pl
     }
     motion.kind = Motion.Kind.NONE
     motion.player = -1
+    motion.landed = id
 
     when {
         turn.won -> { motion.caption = "$name wins!"; feel.play(Sound.WIN, Haptics.Pattern.WIN); delay(400) }
@@ -354,6 +357,16 @@ private fun DrawScope.drawMoving(
     }
 }
 
+/**
+ * Where the pieces are shown. The game already knows where a roll ends, but until the piece has walked
+ * there it is shown where it started, so the move is a surprise.
+ */
+private fun shownPositions(state: UiState, motion: Motion): List<Int> {
+    val t = state.turn
+    return if (state.busy && t != null && motion.landed != state.turnId) state.game.positions.toMutableList().also { it[t.player] = t.from }
+    else state.game.positions
+}
+
 @Composable
 private fun GameBoard(state: UiState, motion: Motion, modifier: Modifier, onTap: () -> Unit) {
     val game = state.game
@@ -361,7 +374,7 @@ private fun GameBoard(state: UiState, motion: Motion, modifier: Modifier, onTap:
     BoardView(
         layout = game.layout,
         theme = state.settings.theme,
-        positions = game.positions,
+        positions = shownPositions(state, motion),
         colors = state.settings.colors,
         piece = state.settings.piece,
         motion = motion,
@@ -432,16 +445,16 @@ private fun PlayerPill(state: UiState, player: Int, motion: Motion, modifier: Mo
     val active = !game.isOver && game.current == player
     val border by animateColorAsState(if (active) theme.accent else theme.line, tween(350), label = "border")
     val detail = when {
-        game.winner == player -> "Winner"
+        game.winner == player && !state.busy -> "Winner"
         active && motion.rolling -> "Rolling"
         active && state.players.isPhone(player) -> "Thinking"
         active -> "Your roll"
-        else -> "On ${game.positions[player]}"
+        else -> "On ${shownPositions(state, motion)[player]}"
     }
     Row(
         modifier.height(48.dp).clip(RoundedCornerShape(50)).background(theme.glass).border(if (active) 1.5.dp else 1.dp, border, RoundedCornerShape(50))
             .padding(start = 6.dp, end = 12.dp)
-            .semantics { contentDescription = "${state.players.name(player)}, square ${game.positions[player]}${if (active) ", to roll" else ""}" },
+            .semantics { contentDescription = "${state.players.name(player)}, square ${shownPositions(state, motion)[player]}${if (active) ", to roll" else ""}" },
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Canvas(Modifier.size(36.dp)) { drawPiece(center + Offset(0f, size.height * 0.05f), size.minDimension * 0.3f, state.settings.colors[player], state.settings.piece) }
@@ -502,11 +515,11 @@ private fun Dock(state: UiState, player: Int, motion: Motion, roll: () -> Unit, 
     val game = state.game
     val active = !game.isOver && game.current == player
     val line = when {
-        game.winner == player -> "Winner"
+        game.winner == player && !state.busy -> "Winner"
         active && motion.caption != null -> motion.caption!!
         active -> "Your roll · tap your die"
         motion.caption != null && motion.player == 1 - player -> motion.caption!!
-        else -> "On ${game.positions[player]}"
+        else -> "On ${shownPositions(state, motion)[player]}"
     }
     Row(modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
         Canvas(Modifier.size(34.dp)) { drawPiece(center, size.minDimension * 0.3f, state.settings.colors[player], state.settings.piece, glow = if (active) theme.accent else null) }
